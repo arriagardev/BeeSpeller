@@ -8,6 +8,7 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Error
 import androidx.compose.material.icons.filled.Help
 import androidx.compose.material.icons.filled.VolumeUp
+import androidx.compose.material.icons.filled.SlowMotionVideo
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -31,9 +32,8 @@ fun SpellingScreen(
 ) {
     val currentWord by engine.currentWord.collectAsState()
     val gameState by engine.gameState.collectAsState()
-    val scope = rememberCoroutineAsState()
+    val scope = rememberCoroutineScope()
     var userInput by remember { mutableStateOf("") }
-    val snackbarHostState = remember { SnackbarHostState() }
 
     LaunchedEffect(Unit) {
         engine.startSession(words)
@@ -46,7 +46,6 @@ fun SpellingScreen(
     }
 
     Scaffold(
-        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = { Text("Spelling Challenge") },
@@ -66,77 +65,45 @@ fun SpellingScreen(
         ) {
             when (val state = gameState) {
                 is SpellingEngine.GameState.Spelling -> {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(20.dp)
-                    ) {
-                        Text(
-                            "Type the word you hear!",
-                            style = MaterialTheme.typography.headlineSmall,
-                            textAlign = TextAlign.Center
-                        )
-
-                        Spacer(modifier = Modifier.height(20.dp))
-
-                        OutlinedTextField(
-                            value = userInput,
-                            onValueChange = { userInput = it },
-                            label = { Text("Spell it here") },
-                            modifier = Modifier.fillMaxWidth(),
-                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                            singleLine = true,
-                            textStyle = MaterialTheme.typography.headlineMedium.copy(
-                                textAlign = TextAlign.Center,
-                                letterSpacing = 4.sp
-                            )
-                        )
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceEvenly
-                        ) {
-                            IconButton(onClick = { engine.repeatWord() }) {
-                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                    Icon(Icons.Default.VolumeUp, contentDescription = "Listen")
-                                    Text("Listen", style = MaterialTheme.typography.labelSmall)
-                                }
-                            }
-                            IconButton(onClick = { engine.provideDefinition() }) {
-                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                    Icon(Icons.Default.Help, contentDescription = "Definition")
-                                    Text("Meaning", style = MaterialTheme.typography.labelSmall)
-                                }
-                            }
-                            IconButton(onClick = { engine.provideExample() }) {
-                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                    Icon(Icons.Default.Help, contentDescription = "Example")
-                                    Text("Example", style = MaterialTheme.typography.labelSmall)
-                                }
+                    SpellingView(
+                        userInput = userInput,
+                        onUserInputChange = { userInput = it },
+                        onRepeat = { engine.repeatWord(slow = false) },
+                        onRepeatSlow = { engine.repeatWord(slow = true) },
+                        onDefinition = { scope.launch { engine.provideDefinition() } },
+                        onExample = { scope.launch { engine.provideExample() } },
+                        onSubmit = {
+                            scope.launch {
+                                engine.submitSpelling(userInput)
+                                userInput = ""
                             }
                         }
-
-                        Button(
-                            onClick = {
-                                val currentIdx = words.indexOf(currentWord)
-                                scope.launch {
-                                    engine.submitSpelling(userInput, words, currentIdx)
-                                    userInput = ""
-                                }
-                            },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(56.dp),
-                            shape = MaterialTheme.shapes.large
-                        ) {
-                            Text("Submit Spelling", fontSize = 18.sp)
+                    )
+                }
+                is SpellingEngine.GameState.Translating -> {
+                    TranslatingView(
+                        word = state.word,
+                        userInput = userInput,
+                        onUserInputChange = { userInput = it },
+                        onSubmit = {
+                            scope.launch {
+                                engine.submitTranslation(userInput)
+                                userInput = ""
+                            }
                         }
-                    }
+                    )
                 }
                 is SpellingEngine.GameState.Feedback -> {
-                    FeedbackView(state) {
-                        val currentIdx = words.indexOf(state.word)
-                        engine.proceedToNext(words, currentIdx)
-                    }
+                    FeedbackView(
+                        state = state,
+                        onNext = {
+                            val currentIdx = words.indexOf(state.word)
+                            engine.proceedToNext(words, currentIdx)
+                        },
+                        onTryAgain = {
+                            engine.tryAgain()
+                        }
+                    )
                 }
                 else -> {
                     CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
@@ -147,7 +114,128 @@ fun SpellingScreen(
 }
 
 @Composable
-fun FeedbackView(state: SpellingEngine.GameState.Feedback, onNext: () -> Unit) {
+fun SpellingView(
+    userInput: String,
+    onUserInputChange: (String) -> Unit,
+    onRepeat: () -> Unit,
+    onRepeatSlow: () -> Unit,
+    onDefinition: () -> Unit,
+    onExample: () -> Unit,
+    onSubmit: () -> Unit
+) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(20.dp)
+    ) {
+        Text(
+            "Type the word you hear!",
+            style = MaterialTheme.typography.headlineSmall,
+            textAlign = TextAlign.Center
+        )
+
+        Spacer(modifier = Modifier.height(20.dp))
+
+        OutlinedTextField(
+            value = userInput,
+            onValueChange = onUserInputChange,
+            label = { Text("Spell it here") },
+            modifier = Modifier.fillMaxWidth(),
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+            singleLine = true,
+            textStyle = MaterialTheme.typography.headlineMedium.copy(
+                textAlign = TextAlign.Center,
+                letterSpacing = 4.sp
+            )
+        )
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceEvenly
+        ) {
+            IconButton(onClick = onRepeat) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(Icons.Default.VolumeUp, contentDescription = "Listen")
+                    Text("Listen", style = MaterialTheme.typography.labelSmall)
+                }
+            }
+            IconButton(onClick = onRepeatSlow) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(Icons.Default.SlowMotionVideo, contentDescription = "Listen slowly")
+                    Text("Slow", style = MaterialTheme.typography.labelSmall)
+                }
+            }
+            IconButton(onClick = onDefinition) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(Icons.Default.Help, contentDescription = "Definition")
+                    Text("Meaning", style = MaterialTheme.typography.labelSmall)
+                }
+            }
+            IconButton(onClick = onExample) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(Icons.Default.Help, contentDescription = "Example")
+                    Text("Example", style = MaterialTheme.typography.labelSmall)
+                }
+            }
+        }
+
+        Button(
+            onClick = onSubmit,
+            modifier = Modifier.fillMaxWidth().height(56.dp),
+            shape = MaterialTheme.shapes.large
+        ) {
+            Text("Submit Spelling", fontSize = 18.sp)
+        }
+    }
+}
+
+@Composable
+fun TranslatingView(
+    word: Word,
+    userInput: String,
+    onUserInputChange: (String) -> Unit,
+    onSubmit: () -> Unit
+) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(20.dp)
+    ) {
+        Text(
+            "Spelling correct!",
+            style = MaterialTheme.typography.headlineSmall,
+            color = Color(0xFF4CAF50)
+        )
+        Text(
+            "Now translate '${word.word}' to Spanish:",
+            style = MaterialTheme.typography.bodyLarge,
+            textAlign = TextAlign.Center
+        )
+
+        OutlinedTextField(
+            value = userInput,
+            onValueChange = onUserInputChange,
+            label = { Text("Spanish translation") },
+            modifier = Modifier.fillMaxWidth(),
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+            singleLine = true,
+            textStyle = MaterialTheme.typography.headlineSmall.copy(textAlign = TextAlign.Center)
+        )
+
+        Button(
+            onClick = onSubmit,
+            modifier = Modifier.fillMaxWidth().height(56.dp),
+            shape = MaterialTheme.shapes.large
+        ) {
+            Text("Submit Translation", fontSize = 18.sp)
+        }
+    }
+}
+
+@Composable
+fun FeedbackView(
+    state: SpellingEngine.GameState.Feedback,
+    onNext: () -> Unit,
+    onTryAgain: () -> Unit
+) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
@@ -166,6 +254,16 @@ fun FeedbackView(state: SpellingEngine.GameState.Feedback, onNext: () -> Unit) {
                 color = Color(0xFF4CAF50),
                 fontWeight = FontWeight.Bold
             )
+            Spacer(modifier = Modifier.height(20.dp))
+            MasteryStars(level = (state.word.masteryLevel + 1).coerceAtMost(5))
+            
+            Spacer(modifier = Modifier.height(40.dp))
+            Button(
+                onClick = onNext,
+                modifier = Modifier.fillMaxWidth().height(56.dp)
+            ) {
+                Text("Next Word", fontSize = 18.sp)
+            }
         } else {
             Icon(
                 Icons.Default.Error,
@@ -179,23 +277,40 @@ fun FeedbackView(state: SpellingEngine.GameState.Feedback, onNext: () -> Unit) {
                 color = MaterialTheme.colorScheme.error,
                 fontWeight = FontWeight.Bold
             )
+            
+            val errorMessage = when(state.errorType) {
+                SpellingEngine.ErrorType.SPELLING -> "Spelling was incorrect: ${state.word.word}"
+                SpellingEngine.ErrorType.TRANSLATION -> "Translation was incorrect: ${state.word.spanishTranslation}"
+                null -> ""
+            }
+            
             Text(
-                "The word was: ${state.word.word}",
+                errorMessage,
                 style = MaterialTheme.typography.bodyLarge,
-                textAlign = TextAlign.Center
+                textAlign = TextAlign.Center,
+                modifier = Modifier.padding(top = 8.dp)
             )
-        }
 
-        Spacer(modifier = Modifier.height(40.dp))
+            Spacer(modifier = Modifier.height(20.dp))
+            MasteryStars(level = (state.word.masteryLevel - 1).coerceAtLeast(0))
 
-        Button(
-            onClick = onNext,
-            modifier = Modifier.fillMaxWidth().height(56.dp)
-        ) {
-            Text("Next Word", fontSize = 18.sp)
+            Spacer(modifier = Modifier.height(40.dp))
+            
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                Button(
+                    onClick = onTryAgain,
+                    modifier = Modifier.weight(1f).height(56.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
+                ) {
+                    Text("Try Again")
+                }
+                Button(
+                    onClick = onNext,
+                    modifier = Modifier.weight(1f).height(56.dp)
+                ) {
+                    Text("Next Word")
+                }
+            }
         }
     }
 }
-
-@Composable
-fun rememberCoroutineAsState() = rememberCoroutineScope()

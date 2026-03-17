@@ -1,7 +1,6 @@
 package com.example.beespeller.data
 
 import com.example.beespeller.model.Word
-import com.example.beespeller.model.SpellingStage
 import kotlinx.coroutines.flow.Flow
 
 class WordRepository(
@@ -10,63 +9,84 @@ class WordRepository(
 ) {
     val allWords: Flow<List<Word>> = wordDao.getAllWords()
 
-    fun getWordsByStage(stage: SpellingStage): Flow<List<Word>> {
-        return wordDao.getWordsByStage(stage)
+    fun getWordsByType(isPreloaded: Boolean): Flow<List<Word>> {
+        return wordDao.getWordsByType(isPreloaded)
     }
 
-    suspend fun addWord(wordText: String) {
+    suspend fun addWord(wordText: String, isPreloaded: Boolean = false) {
         val existingWord = wordDao.getWord(wordText)
         if (existingWord != null) return
 
         val details = geminiContentProvider.fetchWordDetails(wordText)
-        if (details != null) {
-            val word = Word(
+        val word = if (details != null) {
+            Word(
                 word = wordText,
                 definition = details.definition,
                 partOfSpeech = details.partOfSpeech,
                 example = details.example,
-                stage = SpellingStage.CLASS,
-                repeats = 0
+                masteryLevel = 0,
+                isPreloaded = isPreloaded
             )
-            wordDao.insertWord(word)
         } else {
-            // Fallback or error handling if Gemini fails
-            val fallbackWord = Word(
+            Word(
                 word = wordText,
                 definition = "Definition not found",
                 partOfSpeech = "Unknown",
                 example = "Example not found",
-                stage = SpellingStage.CLASS,
-                repeats = 0
+                masteryLevel = 0,
+                isPreloaded = isPreloaded
             )
-            wordDao.insertWord(fallbackWord)
         }
+        wordDao.insertWord(word)
     }
 
     suspend fun updateWordProgress(word: Word, correct: Boolean) {
-        var newRepeats = word.repeats
-        var newStage = word.stage
-
-        if (correct) {
-            newRepeats++
-            if (newRepeats >= newStage.repeatsRequired) {
-                // Move to next stage
-                newStage = when (newStage) {
-                    SpellingStage.CLASS -> SpellingStage.ELIMINATORY
-                    SpellingStage.ELIMINATORY -> SpellingStage.FINAL
-                    SpellingStage.FINAL -> SpellingStage.FINAL // Already at max
-                }
-                newRepeats = 0 // Reset repeats for the new stage
-            }
+        val currentLevel = word.masteryLevel
+        val newLevel = if (correct) {
+            (currentLevel + 1).coerceAtMost(5)
         } else {
-            // Optional: reset repeats on failure or just stay
-            newRepeats = 0
+            (currentLevel - 1).coerceAtLeast(0)
         }
 
-        wordDao.updateWord(word.copy(repeats = newRepeats, stage = newStage, lastPracticed = System.currentTimeMillis()))
+        wordDao.updateWord(word.copy(
+            masteryLevel = newLevel,
+            lastPracticed = System.currentTimeMillis()
+        ))
     }
 
     suspend fun deleteWord(word: Word) {
         wordDao.deleteWord(word)
+    }
+
+    suspend fun preloadInitialWords(words: List<PreloadedWord>) {
+        for (pw in words) {
+            val existing = wordDao.getWord(pw.english)
+            if (existing == null) {
+                wordDao.insertWord(Word(
+                    word = pw.english,
+                    numericId = pw.id,
+                    spanishTranslation = pw.spanish,
+                    isPreloaded = true,
+                    definition = "Tap 'Meaning' to fetch info...",
+                    partOfSpeech = "N/A",
+                    example = "N/A"
+                ))
+            }
+        }
+    }
+
+    suspend fun refreshWordDetails(word: Word): Word {
+        val details = geminiContentProvider.fetchWordDetails(word.word)
+        return if (details != null) {
+            val updated = word.copy(
+                definition = details.definition,
+                partOfSpeech = details.partOfSpeech,
+                example = details.example
+            )
+            wordDao.updateWord(updated)
+            updated
+        } else {
+            word
+        }
     }
 }

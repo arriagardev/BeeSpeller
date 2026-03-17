@@ -8,7 +8,7 @@ import org.json.JSONObject
 
 class GeminiContentProvider {
     private val generativeModel = GenerativeModel(
-        modelName = "gemini-1.5-flash",
+        modelName = "gemini-1.5-flash-latest",
         apiKey = BuildConfig.GEMINI_API_KEY
     )
 
@@ -25,7 +25,6 @@ class GeminiContentProvider {
             val response = generativeModel.generateContent(prompt)
             val jsonText = response.text?.trim() ?: return@withContext null
             
-            // Clean up possible markdown formatting
             val cleanJson = if (jsonText.startsWith("```json")) {
                 jsonText.removePrefix("```json").removeSuffix("```").trim()
             } else if (jsonText.startsWith("```")) {
@@ -43,6 +42,21 @@ class GeminiContentProvider {
         } catch (e: Exception) {
             e.printStackTrace()
             null
+        }
+    }
+
+    suspend fun verifyTranslation(english: String, spanish: String): Boolean = withContext(Dispatchers.IO) {
+        val prompt = """
+            Is "$spanish" a correct Spanish translation for the English word "$english"? 
+            Consider synonyms and context. 
+            Return ONLY "true" or "false".
+        """.trimIndent()
+
+        try {
+            val response = generativeModel.generateContent(prompt)
+            response.text?.trim()?.lowercase()?.contains("true") == true
+        } catch (e: Exception) {
+            false
         }
     }
 
