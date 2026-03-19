@@ -8,6 +8,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.AdminPanelSettings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -23,9 +25,11 @@ fun DashboardScreen(
     words: List<Word>,
     onStartPractice: (List<Word>) -> Unit,
     onAddWord: (String) -> Unit,
-    onNavigateToGroup: (String, Int) -> Unit
+    onNavigateToGroup: (String, Int) -> Unit,
+    onAdmin: () -> Unit
 ) {
     var showAddDialog by remember { mutableStateOf(false) }
+    var showSettingsMenu by remember { mutableStateOf(false) }
     var newWord by remember { mutableStateOf("") }
     var selectedTabIndex by remember { mutableIntStateOf(0) }
 
@@ -33,6 +37,26 @@ fun DashboardScreen(
         topBar = {
             TopAppBar(
                 title = { Text("BeeSpeller Dashboard", fontWeight = FontWeight.Bold) },
+                actions = {
+                    Box {
+                        IconButton(onClick = { showSettingsMenu = true }) {
+                            Icon(Icons.Default.Settings, contentDescription = "Settings")
+                        }
+                        DropdownMenu(
+                            expanded = showSettingsMenu,
+                            onDismissRequest = { showSettingsMenu = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Admin Management") },
+                                onClick = {
+                                    showSettingsMenu = false
+                                    onAdmin()
+                                },
+                                leadingIcon = { Icon(Icons.Default.AdminPanelSettings, null) }
+                            )
+                        }
+                    }
+                },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.primary,
                     titleContentColor = MaterialTheme.colorScheme.onPrimary

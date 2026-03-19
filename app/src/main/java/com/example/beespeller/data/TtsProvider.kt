@@ -19,10 +19,10 @@ class TtsProvider(context: Context) {
         }
     }
 
-    fun speak(text: String, slow: Boolean = false) {
+    fun speak(text: String, rate: Float = 1.0f) {
         if (isReady) {
             tts?.let {
-                it.setSpeechRate(if (slow) 0.4f else 1.0f)
+                it.setSpeechRate(rate)
                 it.speak(text, TextToSpeech.QUEUE_FLUSH, null, null)
             }
         }

@@ -1,13 +1,33 @@
 package com.example.beespeller.data
 
+import android.content.Context
+import android.net.Uri
+import android.os.Environment
 import com.example.beespeller.model.Word
+import com.example.beespeller.model.AiHint
+import com.squareup.moshi.Moshi
+import com.squareup.moshi.Types
+import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withContext
+import java.io.File
+import java.io.FileOutputStream
 
 class WordRepository(
     private val wordDao: WordDao,
-    private val geminiContentProvider: GeminiContentProvider
+    private val geminiContentProvider: GeminiContentProvider,
+    private val context: Context
 ) {
     val allWords: Flow<List<Word>> = wordDao.getAllWords()
+
+    private val moshi = Moshi.Builder()
+        .add(KotlinJsonAdapterFactory())
+        .build()
+    
+    // Adapter for full backup (Words + Hints)
+    private val backupAdapter = moshi.adapter(BackupData::class.java)
 
     fun getWordsByType(isPreloaded: Boolean): Flow<List<Word>> {
         return wordDao.getWordsByType(isPreloaded)
@@ -17,7 +37,7 @@ class WordRepository(
         val existingWord = wordDao.getWord(wordText)
         if (existingWord != null) return
 
-        val details = geminiContentProvider.fetchWordDetails(wordText)
+        val details = fetchAiHint(wordText)
         val word = if (details != null) {
             Word(
                 word = wordText,
@@ -58,6 +78,13 @@ class WordRepository(
         wordDao.deleteWord(word)
     }
 
+    suspend fun clearProgress() {
+        wordDao.deleteAllWords()
+        wordDao.deleteAllHints()
+        // Re-preload initial words to maintain app state
+        preloadInitialWords(PreloadedWords.list)
+    }
+
     suspend fun preloadInitialWords(words: List<PreloadedWord>) {
         for (pw in words) {
             val existing = wordDao.getWord(pw.english)
@@ -71,12 +98,40 @@ class WordRepository(
                     partOfSpeech = "N/A",
                     example = "N/A"
                 ))
+            } else if (existing.isPreloaded && (existing.spanishTranslation != pw.spanish || existing.numericId != pw.id)) {
+                wordDao.updateWord(existing.copy(
+                    spanishTranslation = pw.spanish,
+                    numericId = pw.id
+                ))
             }
         }
     }
 
+    suspend fun isHintCached(word: String): Boolean {
+        return wordDao.getAiHint(word) != null
+    }
+
+    suspend fun fetchAiHint(word: String): AiHint? {
+        val cached = wordDao.getAiHint(word)
+        if (cached != null) return cached
+
+        val details = geminiContentProvider.fetchWordDetails(word)
+        return if (details != null) {
+            val hint = AiHint(
+                word = word,
+                definition = details.definition,
+                partOfSpeech = details.partOfSpeech,
+                example = details.example
+            )
+            wordDao.insertAiHint(hint)
+            hint
+        } else {
+            null
+        }
+    }
+
     suspend fun refreshWordDetails(word: Word): Word {
-        val details = geminiContentProvider.fetchWordDetails(word.word)
+        val details = fetchAiHint(word.word)
         return if (details != null) {
             val updated = word.copy(
                 definition = details.definition,
@@ -87,6 +142,30 @@ class WordRepository(
             updated
         } else {
             word
+        }
+    }
+
+    suspend fun exportProgress(): String = withContext(Dispatchers.IO) {
+        val words = wordDao.getAllWordsList()
+        val hints = wordDao.getAllAiHints()
+        val backup = BackupData(words, hints)
+        
+        val json = backupAdapter.toJson(backup)
+        val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+        val file = File(downloadsDir, "beespeller_full_backup_${System.currentTimeMillis()}.json")
+        FileOutputStream(file).use { 
+            it.write(json.toByteArray())
+        }
+        file.absolutePath
+    }
+
+    suspend fun importProgress(uri: Uri) = withContext(Dispatchers.IO) {
+        context.contentResolver.openInputStream(uri)?.use { inputStream ->
+            val json = inputStream.bufferedReader().use { it.readText() }
+            val backup = backupAdapter.fromJson(json)
+            if (backup != null) {
+                wordDao.clearAndLoad(backup.words, backup.hints)
+            }
         }
     }
 }

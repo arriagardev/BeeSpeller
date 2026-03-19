@@ -10,6 +10,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.example.beespeller.model.Word
@@ -25,7 +26,6 @@ fun GroupDetailScreen(
 ) {
     var randomMode by remember { mutableStateOf(true) }
     
-    // Dynamically filter words from allWords to ensure refresh
     val groupWords = remember(allWords, groupStartId) {
         allWords.filter { it.isPreloaded && it.numericId >= groupStartId && it.numericId < groupStartId + 10 }
                 .sortedBy { it.numericId }
@@ -78,8 +78,14 @@ fun GroupDetailScreen(
 
             Button(
                 onClick = {
-                    val listToPractice = if (randomMode) groupWords.shuffled() else groupWords
-                    onStartPractice(listToPractice)
+                    // Rule: Words with > 3 stars always at the end.
+                    val learningWords = groupWords.filter { it.masteryLevel <= 3 }
+                    val masteringWords = groupWords.filter { it.masteryLevel > 3 }
+
+                    val finalLearning = if (randomMode) learningWords.shuffled() else learningWords.sortedBy { it.numericId }
+                    val finalMastering = if (randomMode) masteringWords.shuffled() else masteringWords.sortedBy { it.numericId }
+
+                    onStartPractice(finalLearning + finalMastering)
                 },
                 modifier = Modifier.fillMaxWidth().height(56.dp)
             ) {

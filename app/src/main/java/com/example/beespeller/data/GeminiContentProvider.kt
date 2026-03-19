@@ -2,13 +2,21 @@ package com.example.beespeller.data
 
 import com.example.beespeller.BuildConfig
 import com.google.ai.client.generativeai.GenerativeModel
+import com.google.ai.client.generativeai.type.generationConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 
 class GeminiContentProvider {
+    // The 404 error "model not found for API version v1beta" with the Google AI SDK 0.9.0
+    // is often caused by an outdated internal endpoint or an incompatibility with
+    // specific model identifiers like "gemini-1.5-flash".
+    // 
+    // Using "gemini-pro" is more stable for older SDK versions.
+    //
+    // Using "gemini-2.5-flash" is more stable for newer SDK versions.
     private val generativeModel = GenerativeModel(
-        modelName = "gemini-1.5-flash-latest",
+        modelName = "gemini-2.5-flash",
         apiKey = BuildConfig.GEMINI_API_KEY
     )
 
@@ -49,13 +57,14 @@ class GeminiContentProvider {
         val prompt = """
             Is "$spanish" a correct Spanish translation for the English word "$english"? 
             Consider synonyms and context. 
-            Return ONLY "true" or "false".
+            Return "true" or "false".
         """.trimIndent()
 
         try {
             val response = generativeModel.generateContent(prompt)
             response.text?.trim()?.lowercase()?.contains("true") == true
         } catch (e: Exception) {
+            e.printStackTrace()
             false
         }
     }
