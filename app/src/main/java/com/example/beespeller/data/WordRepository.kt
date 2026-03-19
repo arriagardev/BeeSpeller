@@ -94,15 +94,34 @@ class WordRepository(
                     numericId = pw.id,
                     spanishTranslation = pw.spanish,
                     isPreloaded = true,
-                    definition = "Tap 'Meaning' to fetch info...",
-                    partOfSpeech = "N/A",
-                    example = "N/A"
+                    definition = pw.definition.ifEmpty { "Tap 'Meaning' to fetch info..." },
+                    partOfSpeech = pw.partOfSpeech.ifEmpty { "N/A" },
+                    example = pw.example.ifEmpty { "N/A" }
                 ))
-            } else if (existing.isPreloaded && (existing.spanishTranslation != pw.spanish || existing.numericId != pw.id)) {
-                wordDao.updateWord(existing.copy(
+            } else if (existing.isPreloaded) {
+                // Update existing preloaded words if their definitions or examples were updated in code
+                var needsUpdate = false
+                var updatedWord = existing.copy(
                     spanishTranslation = pw.spanish,
                     numericId = pw.id
-                ))
+                )
+                
+                if (existing.definition == "Tap 'Meaning' to fetch info..." && pw.definition.isNotEmpty()) {
+                    updatedWord = updatedWord.copy(definition = pw.definition)
+                    needsUpdate = true
+                }
+                if (existing.example == "N/A" && pw.example.isNotEmpty()) {
+                    updatedWord = updatedWord.copy(example = pw.example)
+                    needsUpdate = true
+                }
+                if (existing.partOfSpeech == "N/A" && pw.partOfSpeech.isNotEmpty()) {
+                    updatedWord = updatedWord.copy(partOfSpeech = pw.partOfSpeech)
+                    needsUpdate = true
+                }
+                
+                if (needsUpdate || existing.spanishTranslation != pw.spanish || existing.numericId != pw.id) {
+                    wordDao.updateWord(updatedWord)
+                }
             }
         }
     }
